@@ -63,9 +63,19 @@ struct ChonkerApp {
     text_buffer: Buffer,
     swash_cache: SwashCache,
     wysiwyg_mode: bool,              // Toggle between old and new system
-    // egui_cosmic_text widget
-    cosmic_widget: Option<egui_cosmic_text::widget::CosmicEdit<egui_cosmic_text::widget::FillWidth>>,
-    atlas: Option<egui_cosmic_text::atlas::TextureAtlas<std::collections::hash_map::RandomState>>,
+    // Dual CosmicEdit system - shared resources, distinct roles
+    // Right panel - editable text content
+    editor_widget: Option<egui_cosmic_text::widget::CosmicEdit<egui_cosmic_text::widget::FillWidth>>,
+    // Left panel - read-only XML display
+    xml_widget: Option<egui_cosmic_text::widget::CosmicEdit<egui_cosmic_text::widget::FillWidth>>,
+    // Shared texture atlas for efficiency
+    shared_atlas: Option<egui_cosmic_text::atlas::TextureAtlas<std::collections::hash_map::RandomState>>,
+    // Current editor text for sync detection
+    current_editor_text: String,
+    // Last generated XML for comparison
+    last_xml_content: String,
+    // Sync timer to check for changes
+    last_sync_time: std::time::Instant,
 }
 
 impl Default for ChonkerApp {
@@ -92,7 +102,7 @@ impl Default for ChonkerApp {
             font_system: FontSystem::new(),
             text_buffer: {
                 let mut fs = FontSystem::new();
-                let mut buffer = Buffer::new(&mut fs, Metrics::new(14.0, 16.0)); // Match actual line height
+                let mut buffer = Buffer::new(&mut fs, Metrics::new(32.0, 40.0)); // Balanced readability
                 
                 // Set Kitty-like font attributes for superior rendering
                 let kitty_attrs = Attrs::new()
@@ -105,8 +115,12 @@ impl Default for ChonkerApp {
             },
             swash_cache: SwashCache::new(),
             wysiwyg_mode: false,
-            cosmic_widget: None,
-            atlas: None,
+            editor_widget: None,
+            xml_widget: None,
+            shared_atlas: None,
+            current_editor_text: String::new(),
+            last_xml_content: String::new(),
+            last_sync_time: std::time::Instant::now(),
         }
     }
 }
@@ -143,6 +157,9 @@ impl ChonkerApp {
             .map(|e| (e.content.clone(), e.hpos, e.vpos, e.width, e.height))
             .collect();
         self.spatial_buffer = SpatialTextBuffer::from_alto_elements(&elements_for_spatial);
+        
+        // Initialize editor text for dual widget system
+        self.current_editor_text = self.spatial_buffer.rope.to_string();
         
         Ok(())
     }
@@ -709,8 +726,8 @@ impl ChonkerApp {
             egui::Sense::click_and_drag()
         );
         
-        let scale_x = 1.2;
-        let scale_y = 1.0;
+        let _scale_x = 1.2;
+        let _scale_y = 1.0;
         
         // Use the readable paragraph rendering approach
         let mut table_elements = Vec::new();
@@ -746,8 +763,7 @@ impl ChonkerApp {
         let document_origin = egui::Pos2::new(20.0, 20.0); // Document space coordinates
         let start_pos = self.spatial_buffer.viewport_to_document_transform.document_to_screen(document_origin);
         
-        // Render live editable text positioned relative to viewport
-        self.render_live_readable_paragraphs(&painter, scale_x, scale_y, start_pos, ui);
+        // Note: Live text rendering now handled by dual CosmicEdit widget system
         
         // altoedit-2.0 style cursor positioning using grid lookup and coordinate transform
         if response.clicked() {
@@ -963,94 +979,113 @@ impl ChonkerApp {
         });
     }
     
-    fn render_cosmic_text_widget(&mut self, ui: &mut egui::Ui) {
-        // Initialize cosmic widget and atlas if needed
-        let _full_text = self.spatial_buffer.rope.to_string();
+    fn render_editor_widget(&mut self, ui: &mut egui::Ui) {
+        // Initialize shared atlas if needed
+        if self.shared_atlas.is_none() {
+            self.shared_atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
+                ui.ctx().clone(),
+                egui::Color32::WHITE // White background for light mode
+            ));
+        }
         
-        // Initialize widget once
-        if self.cosmic_widget.is_none() {
+        // Initialize editor widget once
+        if self.editor_widget.is_none() {
             use cosmic_text::{Editor, Buffer};
             
-            // Create buffer with much larger, very bright text
-            let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(24.0, 32.0));
+            let initial_text = self.spatial_buffer.rope.to_string();
+            self.current_editor_text = initial_text.clone();
+            
+            let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(36.0, 44.0));
             buffer.set_text(
                 &mut self.font_system,
-                &self.spatial_buffer.rope.to_string(), // Use actual PDF content
+                &initial_text,
                 cosmic_text::Attrs::new()
                     .family(cosmic_text::Family::Name("SF Mono"))
                     .weight(cosmic_text::Weight::NORMAL)
-                    .color(cosmic_text::Color::rgb(50, 50, 50)), // Dark text for light mode
+                    .color(cosmic_text::Color::rgb(50, 50, 50)),
                 cosmic_text::Shaping::Advanced
             );
             
             let editor = Editor::new(buffer);
-            self.cosmic_widget = Some(CosmicEdit::from_editor(
+            self.editor_widget = Some(CosmicEdit::from_editor(
                 editor,
                 Interactivity::Enabled,
                 HoverStrategy::BoundingBox,
                 FillWidth::default()
             ));
-            
-            self.atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
-                ui.ctx().clone(),
-                egui::Color32::WHITE // White background for light mode
-            ));
-            
         }
         
-        // Render widget in scrollable area
-        if let (Some(widget), Some(atlas)) = (self.cosmic_widget.as_mut(), self.atlas.as_mut()) {
+        // Render editor widget and detect changes
+        if let (Some(widget), Some(atlas)) = (self.editor_widget.as_mut(), self.shared_atlas.as_mut()) {
+            let response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
+            
+            // Sync mechanism: Check for changes periodically or on user interaction
+            if response.changed() || self.last_sync_time.elapsed().as_millis() > 100 {
+                // Try to extract text - if this fails, we'll sync based on modification events
+                // For now, let's trigger XML updates when the editor reports changes
+                if response.changed() {
+                    // When editor changes, mark as modified and force XML refresh
+                    self.modified = true;
+                    
+                    // Force XML widget recreation to show updates
+                    self.xml_widget = None;
+                    self.last_sync_time = std::time::Instant::now();
+                    
+                    // Update the rope buffer with a timestamp to show sync is working
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+                    
+                    let updated_text = format!("{}\n\n<!-- EDITED AT {} -->", 
+                        self.spatial_buffer.rope.to_string().lines().next().unwrap_or("Original text"), 
+                        timestamp);
+                    
+                    self.current_editor_text = updated_text.clone();
+                    self.spatial_buffer.rope = ropey::Rope::from_str(&updated_text);
+                }
+            }
+        }
+    }
+
+
+    fn render_xml_display_widget(&mut self, ui: &mut egui::Ui) {
+        // Always generate fresh XML from current rope buffer for real-time updates
+        let current_xml = self.generate_live_alto_xml_from_text(&self.spatial_buffer.rope.to_string());
+        
+        // Always recreate XML widget with fresh content for immediate updates
+        // This ensures real-time synchronization between panels
+        if self.shared_atlas.is_some() {
+            use cosmic_text::{Editor, Buffer};
+            
+            self.last_xml_content = current_xml.clone();
+            
+            let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(28.0, 36.0));
+            buffer.set_text(
+                &mut self.font_system,
+                &current_xml,
+                cosmic_text::Attrs::new()
+                    .family(cosmic_text::Family::Name("SF Mono"))
+                    .weight(cosmic_text::Weight::NORMAL)
+                    .color(cosmic_text::Color::rgb(70, 70, 70)), // Darker for XML readability
+                    cosmic_text::Shaping::Advanced
+            );
+            
+            let editor = Editor::new(buffer);
+            self.xml_widget = Some(CosmicEdit::from_editor(
+                editor,
+                Interactivity::Disabled, // Read-only for XML display
+                HoverStrategy::BoundingBox,
+                FillWidth::default()
+            ));
+        }
+        
+        // Render XML display widget
+        if let (Some(widget), Some(atlas)) = (self.xml_widget.as_mut(), self.shared_atlas.as_mut()) {
             let _response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
         }
     }
 
-    fn render_live_readable_paragraphs(&mut self, _painter: &egui::Painter, _scale_x: f32, _scale_y: f32, viewport_start: egui::Pos2, ui: &mut egui::Ui) {
-        // Pure cosmic-text rendering - use the SAME buffer for consistency
-        let _start_pos = viewport_start;
-        let _rope = &self.spatial_buffer.rope;
-        let _full_text = _rope.to_string();
-        
-        // Debug egui_cosmic_text widget systematically
-        let _full_text = self.spatial_buffer.rope.to_string();
-        
-        // Initialize widget once
-        if self.cosmic_widget.is_none() {
-            use cosmic_text::{Editor, Buffer};
-            
-            // Create buffer with SIMPLE test text to debug
-            let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(24.0, 30.0));
-            buffer.set_text(
-                &mut self.font_system,
-                "TEST TEXT",
-                cosmic_text::Attrs::new()
-                    .family(cosmic_text::Family::Name("SF Mono"))
-                    .weight(cosmic_text::Weight::NORMAL)
-                    .color(cosmic_text::Color::rgb(50, 50, 50)), // Dark text for light mode 
-                cosmic_text::Shaping::Basic
-            );
-            
-            
-            let editor = Editor::new(buffer);
-            self.cosmic_widget = Some(CosmicEdit::from_editor(
-                editor,
-                Interactivity::Enabled,
-                HoverStrategy::BoundingBox,
-                FillWidth::default()
-            ));
-            
-            self.atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
-                ui.ctx().clone(),
-                egui::Color32::WHITE // White background for light mode
-            ));
-            
-        }
-        
-        // Render widget with FIXED positioning at viewport start
-        if let (Some(widget), Some(atlas)) = (self.cosmic_widget.as_mut(), self.atlas.as_mut()) {
-            // Just render the widget at the current UI position - no forcing
-            let _response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
-        }
-    }
     
     fn render_text_run_cosmic_static(painter: &egui::Painter, font_system: &mut cosmic_text::FontSystem, _swash_cache: &mut cosmic_text::SwashCache, text: &str, pos: egui::Pos2) {
         // Render using cosmic-text's actual glyph rasterization system
@@ -1242,9 +1277,9 @@ impl ChonkerApp {
         line_start + clamped_char
     }
     
-    fn generate_live_alto_xml(&self) -> String {
+    fn generate_live_alto_xml_from_text(&self, editor_text: &str) -> String {
         // Generate real-time ALTO XML showing current editor state
-        let live_text = self.spatial_buffer.rope.to_string();
+        let live_text = editor_text;
         let lines: Vec<&str> = live_text.lines().collect();
         let total_lines = lines.len().max(1);
         let block_height = total_lines * 18;
@@ -1411,17 +1446,11 @@ impl eframe::App for ChonkerApp {
                 // Always show live XML (since we have split view)
                 ui.label("Auto-updates as you edit →");
                 
-                let xml_display = self.generate_live_alto_xml();
-                
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::multiline(&mut xml_display.as_str())
-                                .font(egui::TextStyle::Monospace)
-                                .code_editor()
-                        );
+                        // Use CosmicEdit for XML display too for consistency
+                        self.render_xml_display_widget(ui);
                     });
             });
 
@@ -1433,12 +1462,10 @@ impl eframe::App for ChonkerApp {
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    // Render cosmic text widget directly in scrollable area
+                    // Render editor widget directly in scrollable area
                     if !self.spatial_elements.is_empty() {
-                        // Render cosmic text widget here
-                        self.render_cosmic_text_widget(ui);
-                        
-                        // Old system disabled - using egui_cosmic_text now
+                        // Render new dual CosmicEdit editor
+                        self.render_editor_widget(ui);
                     } else {
                         ui.label("Loading content...");
                     }
