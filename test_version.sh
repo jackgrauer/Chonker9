@@ -1,0 +1,15 @@
+#!/bin/bash
+echo "Testing Chonker5 TUI version..."
+echo "Binary location: /Users/jack/chonker5/target/release/chonker5-tui"
+echo "Binary timestamp: $(ls -la /Users/jack/chonker5/target/release/chonker5-tui | awk '{print $6, $7, $8}')"
+echo ""
+echo "Checking for new shortcuts in binary:"
+strings /Users/jack/chonker5/target/release/chonker5-tui | grep -E "(Ctrl\+O:|Use Ctrl instead)" | head -5
+echo ""
+echo "To run the latest version:"
+echo "1. Close any running chonker5-tui instances"
+echo "2. Open a new terminal/tab"
+echo "3. Run: cd /Users/jack/chonker5 && ./run_tui.sh"
+echo ""
+echo "Or force reload:"
+echo "killall chonker5-tui 2>/dev/null; cd /Users/jack/chonker5 && ./run_tui.sh"

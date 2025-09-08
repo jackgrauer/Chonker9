@@ -1,0 +1,21 @@
+target/
+Cargo.lock
+.DS_Store
+*.swp
+.vscode/
+.idea/
+# Large model files
+models/*.onnx
+models/*.safetensors
+models/*.bin
+models/*.pth
+
+# Database files  
+*.db
+
+# Library files
+lib/*.dylib
+
+# Mutation testing output
+mutants.out/
+ferrules/

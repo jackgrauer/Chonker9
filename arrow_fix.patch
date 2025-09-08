@@ -1,0 +1,11 @@
+--- a/src/temporal.rs
++++ b/src/temporal.rs
+@@ -87,7 +87,7 @@
+         DatePart::Day => |d| d.day() as i32,
+         DatePart::DayOfWeekSunday0 => |d| d.weekday().num_days_from_sunday() as i32,
+         DatePart::DayOfWeekMonday0 => |d| d.weekday().num_days_from_monday() as i32,
+-        DatePart::Quarter => |d| d.quarter() as i32,
++        DatePart::Quarter => |d| chrono::Datelike::quarter(&d) as i32,
+         DatePart::DayOfYear => |d| d.ordinal() as i32,
+         DatePart::Week => |d| d.iso_week().week() as i32,
+     }

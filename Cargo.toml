@@ -1,0 +1,38 @@
+[package]
+name = "chonker9"  
+version = "9.1.0"
+edition = "2021"
+
+[dependencies]
+# GUI framework - downgrade to match egui_cosmic_text
+eframe = "0.28"
+egui = "0.28"
+
+# Terminal UI framework
+crossterm = "0.27"
+
+# HTML parsing for ALTO XML
+quick-xml = "0.38"
+
+# Advanced text editing with rope data structure
+ropey = "1.6"
+
+# Advanced text layout and shaping
+cosmic-text = "0.12"
+
+# PTY for embedded terminal
+portable-pty = "0.8"
+
+# Clipboard support for copy/paste (cosmic-text doesn't have this)
+arboard = "3.3"
+
+# Swash for glyph rendering
+swash = "0.1"
+
+# Native file dialogs
+rfd = "0.14"
+egui_cosmic_text = "0.2.0"
+
+[[bin]]
+name = "chonker9"
+path = "src/main.rs"

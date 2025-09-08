@@ -1,0 +1,94 @@
+# Warp configuration for CHONKER_SNYFTER project
+
+# Project-specific aliases
+aliases:
+  - name: "install"
+    command: "just install"
+    description: "Install all project dependencies"
+  
+  - name: "dev"
+    command: "just dev"
+    description: "Start Tauri development"
+  
+  - name: "check"
+    command: "just status"
+    description: "Check project status"
+  
+  - name: "build"
+    command: "just build"
+    description: "Build the project"
+  
+  - name: "backend"
+    command: "just backend"
+    description: "Start backend server only"
+  
+  - name: "frontend"
+    command: "just frontend"
+    description: "Start frontend server only"
+  
+  - name: "clean"
+    command: "just clean"
+    description: "Clean build artifacts"
+  
+  - name: "test"
+    command: "just test"
+    description: "Run tests"
+  
+  - name: "fmt"
+    command: "just fmt"
+    description: "Format code"
+  
+  - name: "lint"
+    command: "just lint"
+    description: "Run linter"
+  
+  - name: "info"
+    command: "just info"
+    description: "Show project info"
+  
+  - name: "fix"
+    command: "just fix"
+    description: "Fix common issues"
+  
+  - name: "activate"
+    command: "just activate"
+    description: "Show how to activate Python virtual environment"
+  
+  - name: "gs"
+    command: "just git-status"
+    description: "Show git status and recent commits"
+  
+  - name: "ga"
+    command: "just git-add"
+    description: "Add all changes to git"
+  
+  - name: "gc"
+    command: "just git-commit"
+    description: "Commit changes with message"
+  
+  - name: "gq"
+    command: "just git-quick"
+    description: "Quick commit with auto-generated message"
+  
+  - name: "gp"
+    command: "just git-push"
+    description: "Push to remote repository"
+  
+  - name: "gl"
+    command: "just git-pull"
+    description: "Pull from remote repository"
+  
+  - name: "save"
+    command: "just git-save"
+    description: "Add, commit, and push with message"
+
+# Automation preferences
+automation:
+  auto_suggestions: true
+  context_awareness: true
+  
+# Environment variables
+env:
+  PROJECT_NAME: "CHONKER_SNYFTER"
+  PROJECT_ROOT: "/Users/jack/CHONKER_SNYFTER"
+  VIRTUAL_ENV: "/Users/jack/CHONKER_SNYFTER/.venv"

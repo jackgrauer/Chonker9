@@ -1,0 +1,5 @@
+name: "Safe Git Commit"
+description: "Prevents Warp terminal cascading bug"
+tags: ["git", "safety"]
+command: |
+  git commit -e
