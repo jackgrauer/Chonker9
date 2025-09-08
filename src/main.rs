@@ -76,6 +76,12 @@ struct ChonkerApp {
     last_xml_content: String,
     // Sync timer to check for changes
     last_sync_time: std::time::Instant,
+    // Theme and cursor state
+    dark_mode: bool,
+    cursor_blink_timer: std::time::Instant,
+    cursor_visible: bool,
+    // Track theme changes to force widget recreation
+    last_theme_state: bool,
 }
 
 impl Default for ChonkerApp {
@@ -121,6 +127,10 @@ impl Default for ChonkerApp {
             current_editor_text: String::new(),
             last_xml_content: String::new(),
             last_sync_time: std::time::Instant::now(),
+            dark_mode: false,
+            cursor_blink_timer: std::time::Instant::now(),
+            cursor_visible: true,
+            last_theme_state: false,
         }
     }
 }
@@ -980,11 +990,12 @@ impl ChonkerApp {
     }
     
     fn render_editor_widget(&mut self, ui: &mut egui::Ui) {
-        // Initialize shared atlas if needed
+        // Initialize shared atlas if needed or theme changed
         if self.shared_atlas.is_none() {
+            let bg_color = egui::Color32::from_gray(15); // Much darker background for better contrast
             self.shared_atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
                 ui.ctx().clone(),
-                egui::Color32::WHITE // White background for light mode
+                bg_color
             ));
         }
         
@@ -995,14 +1006,22 @@ impl ChonkerApp {
             let initial_text = self.spatial_buffer.rope.to_string();
             self.current_editor_text = initial_text.clone();
             
+            // Debug: Check theme state at widget creation
+            println!("Creating editor widget with dark_mode = {}", self.dark_mode);
+            
+            // Force bright white through cosmic-text attrs with explicit color override
+            println!("FORCING bright white through cosmic-text attrs");
+            
+            let bright_attrs = cosmic_text::Attrs::new()
+                .family(cosmic_text::Family::Name("SF Mono"))
+                .weight(cosmic_text::Weight::NORMAL)
+                .color(cosmic_text::Color::rgba(255, 255, 255, 255)); // Force bright white
+            
             let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(36.0, 44.0));
             buffer.set_text(
                 &mut self.font_system,
                 &initial_text,
-                cosmic_text::Attrs::new()
-                    .family(cosmic_text::Family::Name("SF Mono"))
-                    .weight(cosmic_text::Weight::NORMAL)
-                    .color(cosmic_text::Color::rgb(50, 50, 50)),
+                bright_attrs,
                 cosmic_text::Shaping::Advanced
             );
             
@@ -1015,9 +1034,13 @@ impl ChonkerApp {
             ));
         }
         
+        // Store response for cursor positioning
+        let mut widget_response: Option<egui::Response> = None;
+        
         // Render editor widget and detect changes
         if let (Some(widget), Some(atlas)) = (self.editor_widget.as_mut(), self.shared_atlas.as_mut()) {
             let response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
+            widget_response = Some(response.clone());
             
             // Sync mechanism: Check for changes periodically or on user interaction
             if response.changed() || self.last_sync_time.elapsed().as_millis() > 100 {
@@ -1046,6 +1069,8 @@ impl ChonkerApp {
                 }
             }
         }
+        
+        // No manual cursor - let cosmic-text handle it
     }
 
 
@@ -1067,7 +1092,7 @@ impl ChonkerApp {
                 cosmic_text::Attrs::new()
                     .family(cosmic_text::Family::Name("SF Mono"))
                     .weight(cosmic_text::Weight::NORMAL)
-                    .color(cosmic_text::Color::rgb(70, 70, 70)), // Darker for XML readability
+                    .color(cosmic_text::Color::rgba(255, 255, 255, 255)), // Force bright white for XML too
                     cosmic_text::Shaping::Advanced
             );
             
@@ -1360,8 +1385,30 @@ impl ChonkerApp {
 
 impl eframe::App for ChonkerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Force light mode for everything
-        ctx.set_visuals(egui::Visuals::light());
+        // Force dark mode with much brighter text colors
+        let mut dark_visuals = egui::Visuals::dark();
+        dark_visuals.override_text_color = Some(egui::Color32::from_rgb(255, 255, 255));
+        dark_visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::WHITE;
+        dark_visuals.widgets.inactive.fg_stroke.color = egui::Color32::WHITE;
+        dark_visuals.widgets.hovered.fg_stroke.color = egui::Color32::WHITE;
+        dark_visuals.widgets.active.fg_stroke.color = egui::Color32::WHITE;
+        ctx.set_visuals(dark_visuals);
+        
+        // Update cursor blink state
+        if self.cursor_blink_timer.elapsed().as_millis() > 500 {
+            self.cursor_visible = !self.cursor_visible;
+            self.cursor_blink_timer = std::time::Instant::now();
+        }
+        
+        // Check for theme changes and force widget recreation
+        if self.dark_mode != self.last_theme_state {
+            // Theme changed - force complete widget recreation
+            self.editor_widget = None;
+            self.xml_widget = None;
+            self.shared_atlas = None;
+            self.last_theme_state = self.dark_mode;
+        }
+        
         // Hot reload with Ctrl+U
         ctx.input(|i| {
             if i.key_pressed(egui::Key::U) && i.modifiers.ctrl {
