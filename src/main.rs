@@ -7,6 +7,7 @@ use rfd::FileDialog;
 mod spatial_text;
 use spatial_text::{SpatialTextBuffer, SpatialCursor};
 
+
 #[derive(Debug, Clone)]
 struct SpatialElement {
     content: String,
@@ -1018,6 +1019,8 @@ impl ChonkerApp {
                 .color(cosmic_text::Color::rgba(255, 255, 255, 255)); // Force bright white
             
             let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(36.0, 44.0));
+            // Set very wide line width to prevent automatic wrapping
+            buffer.set_size(&mut self.font_system, Some(5000.0), None); // 5000px wide = no wrapping
             buffer.set_text(
                 &mut self.font_system,
                 &initial_text,
@@ -1026,11 +1029,12 @@ impl ChonkerApp {
             );
             
             let editor = Editor::new(buffer);
+            // Try ShrinkToFit instead of FillWidth to prevent wrapping
             self.editor_widget = Some(CosmicEdit::from_editor(
                 editor,
                 Interactivity::Enabled,
                 HoverStrategy::BoundingBox,
-                FillWidth::default()
+                egui_cosmic_text::widget::ShrinkToFit::default()
             ));
         }
         
@@ -1075,8 +1079,8 @@ impl ChonkerApp {
 
 
     fn render_xml_display_widget(&mut self, ui: &mut egui::Ui) {
-        // Always generate fresh XML from current rope buffer for real-time updates
-        let current_xml = self.generate_live_alto_xml_from_text(&self.spatial_buffer.rope.to_string());
+        // Show the original ALTO XML from PDF extraction (not generated)
+        let current_xml = self.raw_xml.clone();
         
         // Always recreate XML widget with fresh content for immediate updates
         // This ensures real-time synchronization between panels
@@ -1302,54 +1306,6 @@ impl ChonkerApp {
         line_start + clamped_char
     }
     
-    fn generate_live_alto_xml_from_text(&self, editor_text: &str) -> String {
-        // Generate real-time ALTO XML showing current editor state
-        let live_text = editor_text;
-        let lines: Vec<&str> = live_text.lines().collect();
-        let total_lines = lines.len().max(1);
-        let block_height = total_lines * 18;
-        
-        let mut xml = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
-<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#">
-<Description>
-  <MeasurementUnit>pixel</MeasurementUnit>
-  <OCRProcessing>
-    <processingSoftware>
-      <softwareName>Chonker9-WYSIWYG</softwareName>
-      <softwareVersion>Live Editor - {} chars, {} lines, cursor at {}</softwareVersion>
-    </processingSoftware>
-  </OCRProcessing>
-</Description>
-<Styles>
-  <TextStyle ID="font0" FONTFAMILY="monospace" FONTSIZE="13.0" FONTCOLOR="FFFFFF"/>
-</Styles>
-<Layout>
-  <Page ID="LivePage" WIDTH="800" HEIGHT="600">
-    <PrintSpace>
-      <TextBlock ID="live_block" HPOS="20.0" VPOS="20.0" WIDTH="640" HEIGHT="{}">
-"#, live_text.chars().count(), total_lines, self.spatial_cursor.rope_pos, block_height);
-        
-        // Add each line as a separate TextLine with proper coordinates
-        for (line_idx, line) in lines.iter().enumerate() {
-            let line_y = 20.0 + (line_idx as f32 * 18.0);
-            let line_width = line.len() * 8;
-            
-            xml.push_str(&format!(
-                r#"        <TextLine ID="live_line_{}" HPOS="20.0" VPOS="{:.1}" WIDTH="{}" HEIGHT="18">
-          <String ID="live_string_{}" CONTENT="{}" HPOS="20.0" VPOS="{:.1}" 
-                  WIDTH="{}" HEIGHT="16" STYLEREFS="font0"/>
-        </TextLine>
-"#, line_idx + 1, line_y, line_width, line_idx + 1, line.replace("\"", "&quot;"), line_y, line_width));
-        }
-        
-        xml.push_str(r#"      </TextBlock>
-    </PrintSpace>
-  </Page>
-</Layout>
-</alto>"#);
-        
-        xml
-    }
     
     fn format_xml(&self) -> String {
         // Simple XML formatting for better readability
@@ -1488,10 +1444,10 @@ impl eframe::App for ChonkerApp {
             .width_range(200.0..=(screen_width - 200.0))
             .resizable(true)
             .show(ctx, |ui| {
-                ui.heading("🔍 Live ALTO XML (Updates in Real-Time)");
+                ui.heading("📄 Original ALTO XML (from PDF)");
                 
-                // Always show live XML (since we have split view)
-                ui.label("Auto-updates as you edit →");
+                // Show original PDF spatial data
+                ui.label("Real coordinates and structure from pdfalto →");
                 
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
