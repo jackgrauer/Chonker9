@@ -965,7 +965,7 @@ impl ChonkerApp {
     
     fn render_cosmic_text_widget(&mut self, ui: &mut egui::Ui) {
         // Initialize cosmic widget and atlas if needed
-        let full_text = self.spatial_buffer.rope.to_string();
+        let _full_text = self.spatial_buffer.rope.to_string();
         
         // Initialize widget once
         if self.cosmic_widget.is_none() {
@@ -975,11 +975,11 @@ impl ChonkerApp {
             let mut buffer = Buffer::new(&mut self.font_system, cosmic_text::Metrics::new(24.0, 32.0));
             buffer.set_text(
                 &mut self.font_system,
-                &full_text, // Use actual PDF content
+                &self.spatial_buffer.rope.to_string(), // Use actual PDF content
                 cosmic_text::Attrs::new()
                     .family(cosmic_text::Family::Name("SF Mono"))
-                    .weight(cosmic_text::Weight::BOLD) // Bold for better visibility
-                    .color(cosmic_text::Color::rgb(255, 255, 255)), // Maximum brightness white
+                    .weight(cosmic_text::Weight::NORMAL)
+                    .color(cosmic_text::Color::rgb(50, 50, 50)), // Dark text for light mode
                 cosmic_text::Shaping::Advanced
             );
             
@@ -993,16 +993,14 @@ impl ChonkerApp {
             
             self.atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
                 ui.ctx().clone(),
-                egui::Color32::from_gray(40) // Dark gray background for contrast
+                egui::Color32::WHITE // White background for light mode
             ));
             
-            println!("Cosmic widget initialized in scrollable area!");
         }
         
         // Render widget in scrollable area
         if let (Some(widget), Some(atlas)) = (self.cosmic_widget.as_mut(), self.atlas.as_mut()) {
-            let response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
-            println!("Widget in scroll area. Response: {:?}", response.rect);
+            let _response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
         }
     }
 
@@ -1025,13 +1023,12 @@ impl ChonkerApp {
                 &mut self.font_system,
                 "TEST TEXT",
                 cosmic_text::Attrs::new()
-                    .family(cosmic_text::Family::Serif) // Try different font
-                    .weight(cosmic_text::Weight::BOLD)
-                    .color(cosmic_text::Color::rgb(255, 255, 0)), // Yellow 
+                    .family(cosmic_text::Family::Name("SF Mono"))
+                    .weight(cosmic_text::Weight::NORMAL)
+                    .color(cosmic_text::Color::rgb(50, 50, 50)), // Dark text for light mode 
                 cosmic_text::Shaping::Basic
             );
             
-            println!("Buffer created with text, metrics: {:?}", buffer.metrics());
             
             let editor = Editor::new(buffer);
             self.cosmic_widget = Some(CosmicEdit::from_editor(
@@ -1043,20 +1040,15 @@ impl ChonkerApp {
             
             self.atlas = Some(egui_cosmic_text::atlas::TextureAtlas::<std::collections::hash_map::RandomState>::new(
                 ui.ctx().clone(),
-                egui::Color32::RED // Red background for debugging
+                egui::Color32::WHITE // White background for light mode
             ));
             
-            println!("Widget initialized!");
         }
         
         // Render widget with FIXED positioning at viewport start
         if let (Some(widget), Some(atlas)) = (self.cosmic_widget.as_mut(), self.atlas.as_mut()) {
-            println!("About to render widget at viewport_start: {:?}", viewport_start);
-            
             // Just render the widget at the current UI position - no forcing
-            let response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
-            
-            println!("Widget rendered normally. Response: {:?}", response.rect);
+            let _response = widget.ui(ui, &mut self.font_system, &mut self.swash_cache, atlas, NoContextMenu {});
         }
     }
     
@@ -1333,11 +1325,12 @@ impl ChonkerApp {
 
 impl eframe::App for ChonkerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Force light mode for everything
+        ctx.set_visuals(egui::Visuals::light());
         // Hot reload with Ctrl+U
         ctx.input(|i| {
             if i.key_pressed(egui::Key::U) && i.modifiers.ctrl {
                 // Bootleg hot reload: quit and restart in right quadrant
-                println!("🔄 Hot reloading...");
                 
                 // Use nohup to properly detach the process
                 let spawn_result = std::process::Command::new("nohup")
@@ -1349,12 +1342,10 @@ impl eframe::App for ChonkerApp {
                     
                 match spawn_result {
                     Ok(_) => {
-                        println!("✅ Hot reload spawned with nohup");
                         thread::sleep(Duration::from_millis(100));
                         std::process::exit(0);
                     }
-                    Err(e) => {
-                        eprintln!("❌ nohup spawn failed: {}, trying direct spawn", e);
+                    Err(_) => {
                         // Try direct spawn with detached stdio
                         if let Ok(_) = std::process::Command::new("/Users/jack/.local/bin/chonker9")
                             .arg("--right-quadrant")
@@ -1362,11 +1353,8 @@ impl eframe::App for ChonkerApp {
                             .stdout(std::process::Stdio::null()) 
                             .stderr(std::process::Stdio::null())
                             .spawn() {
-                            println!("✅ Direct spawn succeeded");
                             thread::sleep(Duration::from_millis(100));
                             std::process::exit(0);
-                        } else {
-                            eprintln!("❌ All spawn methods failed");
                         }
                     }
                 }
@@ -1384,9 +1372,7 @@ impl eframe::App for ChonkerApp {
                         .pick_file() {
                         
                         self.pdf_path = path.to_string_lossy().to_string();
-                        if let Err(e) = self.load_pdf() {
-                            eprintln!("Error loading PDF: {}", e);
-                        }
+                        let _ = self.load_pdf();
                     }
                 }
                 
@@ -1402,16 +1388,12 @@ impl eframe::App for ChonkerApp {
                 if self.show_xml_debug {
                     ui.label("📋 Debug Mode");
                     if ui.button("💾 Save XML").clicked() {
-                        if let Err(e) = std::fs::write("chonker9_debug.xml", &self.raw_xml) {
-                            eprintln!("Error saving XML: {}", e);
-                        }
+                        let _ = std::fs::write("chonker9_debug.xml", &self.raw_xml);
                     }
                 } else {
                     if ui.button("💾 Save Text").clicked() {
                         let content = self.spatial_buffer.rope.to_string();
-                        if let Err(e) = std::fs::write("chonker9_edited.txt", content) {
-                            eprintln!("Error saving text: {}", e);
-                        }
+                        let _ = std::fs::write("chonker9_edited.txt", content);
                     }
                 }
             });
@@ -1468,8 +1450,6 @@ impl eframe::App for ChonkerApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    println!("🚀 Starting Chonker9...");
-    
     // Check for right quadrant positioning argument
     let args: Vec<String> = std::env::args().collect();
     let right_quadrant = args.contains(&"--right-quadrant".to_string());
@@ -1477,21 +1457,11 @@ fn main() -> Result<(), eframe::Error> {
     let mut app = ChonkerApp::default();
     
     // Auto-load the default PDF
-    println!("📁 Loading PDF...");
-    match app.load_pdf() {
-        Ok(()) => {
-            println!("✅ PDF loaded successfully - {} elements", app.spatial_elements.len());
-        }
-        Err(e) => {
-            eprintln!("❌ Error loading PDF: {}", e);
-            eprintln!("💡 Continuing without PDF data - you can load one manually");
-        }
-    }
+    let _ = app.load_pdf();
     
     // Use fixed screen dimensions to avoid system calls that might cause issues
     let screen_width = 1920.0;
     let screen_height = 1080.0;
-    println!("📺 Using default screen size: {}x{}", screen_width, screen_height);
     
     let (window_width, window_height, x_pos, y_pos) = if right_quadrant {
         // Right HALF of screen, full height, touching bottom
@@ -1513,18 +1483,10 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     
-    if right_quadrant {
-        println!("🖥️ Creating window in right half: {}×{} at ({}, {})", window_width, window_height, x_pos, y_pos);
-    } else {
-        println!("🖥️ Creating window...");
-    }
     
     eframe::run_native(
         "Chonker9",
         options,
-        Box::new(|_cc| {
-            println!("✅ Window created");
-            Ok(Box::new(app))
-        }),
+        Box::new(|_cc| Ok(Box::new(app))),
     )
 }
